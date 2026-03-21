@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ip.ian.sh</title>
+<style>
+:root {
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --surface: #f3f4f6;
+  --copied: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0a;
+    --fg: #e5e5e5;
+    --muted: #9ca3af;
+    --border: #27272a;
+    --accent: #60a5fa;
+    --accent-hover: #93bbfd;
+    --surface: #18181b;
+    --copied: #4ade80;
+  }
+}
+
+[data-theme="light"] {
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --surface: #f3f4f6;
+  --copied: #16a34a;
+}
+
+[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --fg: #e5e5e5;
+  --muted: #9ca3af;
+  --border: #27272a;
+  --accent: #60a5fa;
+  --accent-hover: #93bbfd;
+  --surface: #18181b;
+  --copied: #4ade80;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: "Berkeley Mono", "SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3rem 1.5rem;
+  transition: background 0.2s, color 0.2s;
+}
+
+main {
+  width: 100%;
+  max-width: 540px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2.5rem;
+}
+
+header h1 {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+#theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+#theme-toggle:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.ip-block {
+  margin-bottom: 2rem;
+}
+
+.ip-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.ip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ip-addr {
+  font-size: 1.8rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  word-break: break-all;
+}
+
+.copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.7rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.copy-btn:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.copy-btn.copied {
+  color: var(--copied);
+  border-color: var(--copied);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 1rem;
+  font-size: 0.8rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.details dt {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  padding-top: 0.1rem;
+}
+
+.details dd {
+  color: var(--fg);
+}
+
+.alt-section {
+  margin-top: 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.alt-section .ip-addr {
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.alt-section .details {
+  font-size: 0.75rem;
+}
+
+.unavailable {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.loading {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+footer {
+  margin-top: 3rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+footer a:hover {
+  text-decoration: underline;
+}
+
+.api-hint {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.api-hint code {
+  background: var(--surface);
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ip.ian.sh</h1>
+    <button id="theme-toggle" aria-label="Toggle theme">dark</button>
+  </header>
+
+  <div id="primary" class="ip-block"></div>
+  <div id="alt-ips"></div>
+
+  <div class="api-hint">
+    <p><code>curl ip.ian.sh</code> &mdash; plain text</p>
+    <p><code>curl ip.ian.sh/json</code> &mdash; JSON with geo/ASN</p>
+    <p><code>curl ip4.ian.sh</code> / <code>curl ip6.ian.sh</code> &mdash; force protocol</p>
+  </div>
+
+  <footer>
+    <p>a tool by <a href="https://ian.sh">ian.sh</a></p>
+  </footer>
+</main>
+
+<script>
+var __IP__ = {{.}};
+
+(function() {
+  // Theme
+  var html = document.documentElement;
+  var toggle = document.getElementById('theme-toggle');
+  var saved = localStorage.getItem('theme');
+
+  function applyTheme(t) {
+    html.setAttribute('data-theme', t);
+    toggle.textContent = t === 'dark' ? 'light' : 'dark';
+  }
+
+  if (saved) {
+    applyTheme(saved);
+  } else {
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    toggle.textContent = prefersDark ? 'light' : 'dark';
+  }
+
+  toggle.addEventListener('click', function() {
+    var current = html.getAttribute('data-theme') ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    localStorage.setItem('theme', next);
+  });
+
+  // Render
+  function copyHandler(text, btn) {
+    return function() {
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'copied';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 1500);
+      });
+    };
+  }
+
+  function renderIP(info, container, isAlt) {
+    var label = 'IPv' + info.version;
+    var sectionClass = isAlt ? 'ip-block alt-section' : 'ip-block';
+
+    var h = '<div class="' + sectionClass + '">';
+    h += '<div class="ip-label">' + label + '</div>';
+    h += '<div class="ip-row">';
+    h += '<span class="ip-addr">' + escapeHtml(info.ip) + '</span>';
+    h += '<button class="copy-btn" data-ip="' + escapeHtml(info.ip) + '">copy</button>';
+    h += '</div>';
+
+    var details = [];
+    if (info.city || info.region || info.country) {
+      var loc = [info.city, info.region, info.country].filter(Boolean).join(', ');
+      details.push(['location', loc]);
+    }
+    if (info.country_code) {
+      details.push(['country', info.country_code]);
+    }
+    if (info.org) {
+      var asnStr = info.asn ? 'AS' + info.asn + ' ' : '';
+      details.push(['network', asnStr + info.org]);
+    }
+    if (info.timezone) {
+      details.push(['timezone', info.timezone]);
+    }
+
+    if (details.length) {
+      h += '<dl class="details">';
+      for (var i = 0; i < details.length; i++) {
+        h += '<dt>' + details[i][0] + '</dt><dd>' + escapeHtml(details[i][1]) + '</dd>';
+      }
+      h += '</dl>';
+    }
+
+    h += '</div>';
+    container.innerHTML += h;
+
+    var btns = container.querySelectorAll('.copy-btn[data-ip="' + info.ip + '"]');
+    for (var j = 0; j < btns.length; j++) {
+      btns[j].addEventListener('click', copyHandler(info.ip, btns[j]));
+    }
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+  }
+
+  // Primary IP (server-rendered)
+  var primary = document.getElementById('primary');
+  renderIP(__IP__, primary, false);
+
+  // Fetch alternate IPs
+  var altContainer = document.getElementById('alt-ips');
+  var host = window.location.hostname;
+  var fetches = [];
+
+  if (host === 'ip4.ian.sh') {
+    fetches.push({ url: 'https://ip6.ian.sh/json', label: 'IPv6' });
+  } else if (host === 'ip6.ian.sh') {
+    fetches.push({ url: 'https://ip4.ian.sh/json', label: 'IPv4' });
+  } else {
+    // ip.ian.sh or other — fetch whichever we don't already have, plus the other
+    if (__IP__.version === 4) {
+      fetches.push({ url: 'https://ip6.ian.sh/json', label: 'IPv6' });
+    } else {
+      fetches.push({ url: 'https://ip4.ian.sh/json', label: 'IPv4' });
+    }
+    // Also fetch the explicit version of what we already have, in case it differs
+    if (__IP__.version === 4) {
+      fetches.push({ url: 'https://ip4.ian.sh/json', label: 'IPv4 (explicit)' });
+    } else {
+      fetches.push({ url: 'https://ip6.ian.sh/json', label: 'IPv6 (explicit)' });
+    }
+  }
+
+  // Show loading state
+  if (fetches.length > 0) {
+    altContainer.innerHTML = '<div class="loading">checking alternate protocol...</div>';
+  }
+
+  var results = [];
+  var done = 0;
+
+  fetches.forEach(function(f, idx) {
+    fetch(f.url, { mode: 'cors' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        // Don't show if it's the same IP
+        if (data.ip !== __IP__.ip) {
+          results[idx] = data;
+        }
+      })
+      .catch(function() {
+        results[idx] = null;
+      })
+      .finally(function() {
+        done++;
+        if (done === fetches.length) {
+          altContainer.innerHTML = '';
+          var shown = false;
+          for (var k = 0; k < results.length; k++) {
+            if (results[k]) {
+              renderIP(results[k], altContainer, true);
+              shown = true;
+            }
+          }
+          if (!shown && fetches.length > 0) {
+            // Only show unavailable for the non-duplicate fetch
+            var otherProto = __IP__.version === 4 ? 'IPv6' : 'IPv4';
+            altContainer.innerHTML = '<div class="alt-section"><div class="ip-label">' + otherProto + '</div><div class="unavailable">' + otherProto + ' not available</div></div>';
+          }
+        }
+      });
+  });
+})();
+</script>
+</body>
+</html>
