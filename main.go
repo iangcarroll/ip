@@ -24,6 +24,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/json", s.handleJSON)
+	mux.HandleFunc("/ping", s.handlePing)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

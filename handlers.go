@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -79,9 +80,29 @@ func (s *Server) handleJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addr := extractClientIP(r)
-	info := s.Lookup(addr)
-
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	var addr netip.Addr
+	if q := strings.TrimSpace(r.URL.Query().Get("ip")); q != "" {
+		parsed, err := netip.ParseAddr(q)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid IP"})
+			return
+		}
+		addr = parsed.Unmap()
+	} else {
+		addr = extractClientIP(r)
+	}
+
+	info := s.Lookup(addr)
 	json.NewEncoder(w).Encode(info)
+}
+
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
 }

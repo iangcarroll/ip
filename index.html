@@ -223,6 +223,100 @@ footer a:hover {
   border-radius: 3px;
   font-size: 0.72rem;
 }
+
+.section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.latency-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.85rem;
+  padding: 0.3rem 0;
+}
+
+.latency-proto {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
+.latency-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.latency-value.muted {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.latency-meta {
+  color: var(--muted);
+  font-size: 0.7rem;
+  margin-left: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.lookup-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.lookup-form input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 4px;
+  outline: none;
+  min-width: 0;
+}
+.lookup-form input:focus {
+  border-color: var(--accent);
+}
+
+.lookup-form button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lookup-form button:hover {
+  background: var(--accent-hover);
+}
+.lookup-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#lookup-result {
+  margin-top: 1rem;
+}
+
+#lookup-result .ip-block {
+  margin-bottom: 0;
+}
+
+.lookup-error {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+}
 </style>
 </head>
 <body>
@@ -235,9 +329,37 @@ footer a:hover {
   <div id="primary" class="ip-block"></div>
   <div id="alt-ips"></div>
 
+  <div class="section">
+    <div class="ip-label">latency to backend</div>
+    <div class="latency-row">
+      <span class="latency-proto">IPv4</span>
+      <span>
+        <span class="latency-value muted" id="latency-v4">checking...</span>
+        <span class="latency-meta" id="latency-v4-meta"></span>
+      </span>
+    </div>
+    <div class="latency-row">
+      <span class="latency-proto">IPv6</span>
+      <span>
+        <span class="latency-value muted" id="latency-v6">checking...</span>
+        <span class="latency-meta" id="latency-v6-meta"></span>
+      </span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="ip-label">look up another IP</div>
+    <form id="lookup-form" class="lookup-form" autocomplete="off">
+      <input id="lookup-input" type="text" placeholder="e.g. 8.8.8.8 or 2001:4860:4860::8888" spellcheck="false">
+      <button type="submit">lookup</button>
+    </form>
+    <div id="lookup-result"></div>
+  </div>
+
   <div class="api-hint">
     <p><code>curl ip.ian.sh</code> &mdash; plain text</p>
     <p><code>curl ip.ian.sh/json</code> &mdash; JSON with geo/ASN</p>
+    <p><code>curl 'ip.ian.sh/json?ip=8.8.8.8'</code> &mdash; look up any IP</p>
     <p><code>curl ip4.ian.sh</code> / <code>curl ip6.ian.sh</code> &mdash; force protocol</p>
   </div>
 
@@ -404,6 +526,100 @@ var __IP__ = {{.}};
             altContainer.innerHTML = '<div class="alt-section"><div class="ip-label">' + otherProto + '</div><div class="unavailable">' + otherProto + ' not available</div></div>';
           }
         }
+      });
+  });
+
+  // Latency
+  var samples = { 4: [], 6: [] };
+  var failures = { 4: 0, 6: 0 };
+  var maxSamples = 10;
+  var failThreshold = 3;
+  var pingInterval = 2000;
+
+  function median(arr) {
+    if (arr.length === 0) return null;
+    var s = arr.slice().sort(function(a, b) { return a - b; });
+    var mid = Math.floor(s.length / 2);
+    return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+  }
+
+  function fmtMs(v) { return Math.round(v) + ' ms'; }
+
+  function updateLatency(version) {
+    var valEl = document.getElementById('latency-v' + version);
+    var metaEl = document.getElementById('latency-v' + version + '-meta');
+    var arr = samples[version];
+    if (arr.length > 0) {
+      valEl.textContent = fmtMs(median(arr));
+      valEl.classList.remove('muted');
+      metaEl.textContent = 'min ' + fmtMs(Math.min.apply(null, arr)) + ' · n=' + arr.length;
+    } else if (failures[version] >= failThreshold) {
+      valEl.textContent = 'unavailable';
+      valEl.classList.add('muted');
+      metaEl.textContent = '';
+    }
+  }
+
+  function pingOnce(version) {
+    var host = version === 4 ? 'ip4.ian.sh' : 'ip6.ian.sh';
+    var url = 'https://' + host + '/ping?_=' + Date.now() + '_' + Math.random();
+    var start = performance.now();
+    return fetch(url, { cache: 'no-store', mode: 'cors' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('bad status');
+        var elapsed = performance.now() - start;
+        samples[version].push(elapsed);
+        if (samples[version].length > maxSamples) samples[version].shift();
+        failures[version] = 0;
+      })
+      .catch(function() {
+        failures[version]++;
+      });
+  }
+
+  function pingLoop(version) {
+    pingOnce(version).then(function() {
+      updateLatency(version);
+      setTimeout(function() { pingLoop(version); }, pingInterval);
+    });
+  }
+
+  // Stagger so v4 and v6 don't compete for the same network slot
+  pingLoop(4);
+  setTimeout(function() { pingLoop(6); }, pingInterval / 2);
+
+  // IP lookup
+  var lookupForm = document.getElementById('lookup-form');
+  var lookupInput = document.getElementById('lookup-input');
+  var lookupResult = document.getElementById('lookup-result');
+  var lookupBtn = lookupForm.querySelector('button');
+
+  lookupForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var ip = lookupInput.value.trim();
+    if (!ip) return;
+
+    lookupBtn.disabled = true;
+    lookupResult.innerHTML = '<div class="loading">looking up ' + escapeHtml(ip) + '...</div>';
+
+    fetch('/json?ip=' + encodeURIComponent(ip))
+      .then(function(r) {
+        return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+      })
+      .then(function(res) {
+        lookupResult.innerHTML = '';
+        if (!res.ok) {
+          lookupResult.innerHTML = '<div class="lookup-error">' +
+            escapeHtml(res.data && res.data.error ? res.data.error : 'lookup failed') + '</div>';
+          return;
+        }
+        renderIP(res.data, lookupResult, true);
+      })
+      .catch(function() {
+        lookupResult.innerHTML = '<div class="lookup-error">lookup failed</div>';
+      })
+      .finally(function() {
+        lookupBtn.disabled = false;
       });
   });
 })();
