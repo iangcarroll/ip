@@ -195,10 +195,20 @@ header h1 {
   font-size: 0.85rem;
 }
 
-footer {
-  margin-top: 3rem;
+.region-line {
+  margin-top: 2rem;
+  text-align: center;
   font-size: 0.7rem;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+footer {
+  margin-top: 1rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
 }
 
 footer a {
@@ -362,6 +372,8 @@ footer a:hover {
     <p><code>curl 'ip.ian.sh/json?ip=8.8.8.8'</code> &mdash; look up any IP</p>
     <p><code>curl ip4.ian.sh</code> / <code>curl ip6.ian.sh</code> &mdash; force protocol</p>
   </div>
+
+  <div id="region-line" class="region-line"></div>
 
   <footer>
     <p>a tool by <a href="https://ian.sh">ian.sh</a></p>
@@ -529,12 +541,24 @@ var __IP__ = {{.}};
       });
   });
 
+  // Region line
+  (function renderRegion() {
+    var el = document.getElementById('region-line');
+    var parts = [];
+    if (__IP__.fly_region) parts.push('served from ' + __IP__.fly_region);
+    if (__IP__.edge_region && __IP__.edge_region !== __IP__.fly_region) {
+      parts.push('edge: ' + __IP__.edge_region);
+    }
+    el.textContent = parts.join(' · ');
+  })();
+
   // Latency
   var samples = { 4: [], 6: [] };
   var failures = { 4: 0, 6: 0 };
   var maxSamples = 10;
   var failThreshold = 3;
-  var pingInterval = 2000;
+  var pingInterval = 1000;
+  var pingInitialDelay = 2000;
 
   function median(arr) {
     if (arr.length === 0) return null;
@@ -584,9 +608,10 @@ var __IP__ = {{.}};
     });
   }
 
-  // Stagger so v4 and v6 don't compete for the same network slot
-  pingLoop(4);
-  setTimeout(function() { pingLoop(6); }, pingInterval / 2);
+  // Wait for the page to settle, then probe each protocol every second.
+  // v4 and v6 are staggered so they don't compete for the same network slot.
+  setTimeout(function() { pingLoop(4); }, pingInitialDelay);
+  setTimeout(function() { pingLoop(6); }, pingInitialDelay + pingInterval / 2);
 
   // IP lookup
   var lookupForm = document.getElementById('lookup-form');

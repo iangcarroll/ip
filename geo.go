@@ -11,17 +11,20 @@ import (
 )
 
 type IPInfo struct {
-	IP          string  `json:"ip"`
-	Version     int     `json:"version"`
-	City        string  `json:"city,omitempty"`
-	Region      string  `json:"region,omitempty"`
-	Country     string  `json:"country,omitempty"`
-	CountryCode string  `json:"country_code,omitempty"`
-	Timezone    string  `json:"timezone,omitempty"`
-	ASN         string  `json:"asn,omitempty"`
-	Org         string  `json:"org,omitempty"`
-	Hostname    string  `json:"hostname,omitempty"`
-	Postal      string  `json:"postal,omitempty"`
+	IP          string `json:"ip"`
+	Version     int    `json:"version"`
+	City        string `json:"city,omitempty"`
+	Region      string `json:"region,omitempty"`
+	Country     string `json:"country,omitempty"`
+	CountryCode string `json:"country_code,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
+	ASN         string `json:"asn,omitempty"`
+	Org         string `json:"org,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	Postal      string `json:"postal,omitempty"`
+	// Per-request, never cached.
+	FlyRegion  string `json:"fly_region,omitempty"`
+	EdgeRegion string `json:"edge_region,omitempty"`
 }
 
 type ipinfoResponse struct {
@@ -42,6 +45,7 @@ type cacheEntry struct {
 
 type Server struct {
 	ipinfoToken string
+	flyRegion   string
 	httpClient  *http.Client
 
 	mu    sync.RWMutex
@@ -50,9 +54,10 @@ type Server struct {
 
 const cacheTTL = 1 * time.Hour
 
-func NewServer(token string) *Server {
+func NewServer(token, flyRegion string) *Server {
 	return &Server{
 		ipinfoToken: token,
+		flyRegion:   flyRegion,
 		httpClient: &http.Client{
 			Timeout: 3 * time.Second,
 		},

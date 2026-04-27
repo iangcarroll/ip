@@ -41,6 +41,8 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	addr := extractClientIP(r)
 	info := s.Lookup(addr)
+	info.FlyRegion = s.flyRegion
+	info.EdgeRegion = r.Header.Get("Fly-Region")
 
 	ua := r.Header.Get("User-Agent")
 	if ua == "" || isCLI(ua) {
@@ -59,6 +61,12 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	infoJSON, _ := json.Marshal(info)
 
+	// Cross-origin isolation enables high-resolution performance.now()
+	// for the latency probes. Our only cross-origin subresources are the
+	// /ping and /json fetches to ip4/ip6 subdomains, which set
+	// Cross-Origin-Resource-Policy: cross-origin so they pass COEP.
+	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	indexTmpl.Execute(w, template.JS(infoJSON))
 }
@@ -80,6 +88,7 @@ func (s *Server) handleJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 	var addr netip.Addr
@@ -96,6 +105,8 @@ func (s *Server) handleJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info := s.Lookup(addr)
+	info.FlyRegion = s.flyRegion
+	info.EdgeRegion = r.Header.Get("Fly-Region")
 	json.NewEncoder(w).Encode(info)
 }
 
@@ -103,6 +114,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }

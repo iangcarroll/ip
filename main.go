@@ -19,7 +19,7 @@ func main() {
 		log.Printf("Warning: IPINFO_TOKEN not set, geo lookups will be disabled")
 	}
 
-	s := NewServer(token)
+	s := NewServer(token, os.Getenv("FLY_REGION"))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
