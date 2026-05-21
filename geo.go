@@ -120,7 +120,7 @@ func (s *Server) Lookup(addr netip.Addr) IPInfo {
 	if data.Org != "" {
 		if strings.HasPrefix(data.Org, "AS") {
 			parts := strings.SplitN(data.Org, " ", 2)
-			info.ASN = parts[0]
+			info.ASN = strings.TrimPrefix(parts[0], "AS")
 			if len(parts) > 1 {
 				info.Org = parts[1]
 			}
