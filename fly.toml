@@ -4,6 +4,13 @@ primary_region = "sjc"
 [build]
   dockerfile = "Dockerfile"
 
+# auto_stop_machines + rolling health checks fight each other: flyctl tries to
+# smoke-check machines that just went back to stopped state, hits a 5-min
+# timeout, fails. "immediate" pushes the image to all machines at once and
+# skips the wait-for-healthy step.
+[deploy]
+  strategy = "immediate"
+
 [http_service]
   internal_port = 8080
   force_https = false
