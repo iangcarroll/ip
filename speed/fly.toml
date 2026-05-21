@@ -1,0 +1,41 @@
+app = "ip-speed"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TLS_MODE = "acme"
+  ACME_DOMAIN = "speed.ian.sh,*.speed.ian.sh"
+
+[mounts]
+  source = "speed_data"
+  destination = "/data"
+
+# TCP/443 — raw passthrough (omit handlers) so our Go process owns TLS
+# termination. Required for HTTP/2 + ACME TLS-ALPN-01.
+[[services]]
+  protocol = "tcp"
+  internal_port = 443
+
+  [[services.ports]]
+    port = 443
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "60s"
+
+# UDP/443 — H3 / QUIC. Requires a dedicated IPv4 (fly ips allocate-v4).
+# No AAAA for speed.ian.sh; v6 clients are gated out by the IP frontend.
+[[services]]
+  protocol = "udp"
+  internal_port = 443
+
+  [[services.ports]]
+    port = 443
+
+# Keep machine warm — UDP packets to a stopped machine are dropped, and we
+# need certmagic to be running to handle ACME renewals.
+[deploy]
+  strategy = "rolling"

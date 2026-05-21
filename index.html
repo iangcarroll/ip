@@ -327,6 +327,58 @@ footer a:hover {
   font-size: 0.85rem;
   margin-top: 0.75rem;
 }
+
+.speed-btn {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 0.6rem;
+}
+.speed-btn:hover { background: var(--accent-hover); }
+.speed-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.speed-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-row {
+  display: flex;
+  gap: 2rem;
+  margin-top: 0.75rem;
+}
+.speed-num {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.speed-unit {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+
+.speed-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-v6-note {
+  margin-top: 1.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+  font-style: italic;
+}
 </style>
 </head>
 <body>
@@ -356,6 +408,13 @@ footer a:hover {
       </span>
     </div>
   </div>
+
+  <section id="speed" class="section" hidden>
+    <div class="ip-label">speed test</div>
+    <button id="speed-run" class="speed-btn">run</button>
+    <div id="speed-results"></div>
+  </section>
+  <p id="speed-v6-note" class="speed-v6-note" hidden>speed test requires IPv4 (UDP/QUIC unavailable on v6-only networks)</p>
 
   <div class="section">
     <div class="ip-label">look up another IP</div>
@@ -540,6 +599,283 @@ var __IP__ = {{.}};
         }
       });
   });
+
+  // Speed test (gated on IPv4 reachability).
+  // The speed server is the source of truth for which hosts to use — we
+  // bootstrap from speed.ian.sh/__config and the rest is dynamic, so adding
+  // shards or rotating them server-side does not require a frontend redeploy.
+  var SPEED_BOOTSTRAP = 'https://speed.ian.sh';
+  var SPEED_PING_HOST = '';
+  var SPEED_SHARDS = [];
+  var SPEED_HOST_RE = null;
+  var speedSection = document.getElementById('speed');
+  var speedV6Note = document.getElementById('speed-v6-note');
+  var speedRunBtn = document.getElementById('speed-run');
+  var speedResultsEl = document.getElementById('speed-results');
+  var speedProto = { down: '', up: '' };
+
+  if (typeof PerformanceObserver !== 'undefined') {
+    try {
+      new PerformanceObserver(function(list) {
+        var entries = list.getEntries();
+        for (var i = 0; i < entries.length; i++) {
+          var e = entries[i];
+          if (!SPEED_HOST_RE || !SPEED_HOST_RE.test(e.name) || !e.nextHopProtocol) continue;
+          if (e.name.indexOf('/__down') > 0) speedProto.down = e.nextHopProtocol;
+          else if (e.name.indexOf('/__up') > 0) speedProto.up = e.nextHopProtocol;
+        }
+      }).observe({ type: 'resource', buffered: true });
+    } catch (_) {}
+  }
+
+  function prewarmShards(hosts) {
+    // Defense-in-depth: even with the wildcard HTTPS RR telling the browser
+    // to use H3, one warmup request per shard establishes the QUIC handshake
+    // *before* the timed transfer begins. Without it, the first 100-200ms
+    // of the timed window is QUIC handshake + slow-start init rather than
+    // useful throughput measurement. Also acts as Alt-Svc-discovery fallback
+    // for older browsers that don't honor HTTPS RR.
+    return Promise.all(hosts.map(function(h) {
+      return fetch('https://' + h + '/ping?_=' + Math.random(),
+        { cache: 'no-store', mode: 'cors' }).catch(function() {});
+    }));
+  }
+
+  function loadSpeedConfig() {
+    return fetch(SPEED_BOOTSTRAP + '/__config', { mode: 'cors' })
+      .then(function(r) { return r.json(); })
+      .then(function(cfg) {
+        SPEED_PING_HOST = cfg.ping;
+        SPEED_SHARDS = (cfg.shards && cfg.shards.length) ? cfg.shards.slice() : [cfg.ping];
+        // Shuffle each run so a stream that draws a slow path doesn't always
+        // poison the same shard slot, and so we exercise the full pool over
+        // time when the server lists more shards than we run in parallel.
+        for (var i = SPEED_SHARDS.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var t = SPEED_SHARDS[i]; SPEED_SHARDS[i] = SPEED_SHARDS[j]; SPEED_SHARDS[j] = t;
+        }
+        var hosts = [SPEED_PING_HOST].concat(SPEED_SHARDS);
+        var escaped = hosts.map(function(h) {
+          return h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        });
+        SPEED_HOST_RE = new RegExp('^https://(?:' + escaped.join('|') + ')/');
+      });
+  }
+
+  // Speed-test visibility is decoupled from the alt-IP fetch loop so a slow
+  // v6 probe (or any unrelated cross-origin fetch) can't delay it.
+  function ensureSpeedVisibility() {
+    // Page loaded over v4 — we already know v4 works. No probe needed.
+    if (host === 'ip4.ian.sh' || __IP__.version === 4) {
+      speedSection.removeAttribute('hidden');
+      return;
+    }
+    // v6-served: probe speed.ian.sh directly with a 3s cap. It has only an
+    // A record, so a successful response proves the client has v4 reachable.
+    var ctrl = new AbortController();
+    var timer = setTimeout(function() { ctrl.abort(); }, 3000);
+    fetch('https://speed.ian.sh/ping?_=' + Math.random(),
+      { cache: 'no-store', mode: 'cors', signal: ctrl.signal }
+    ).then(function(r) {
+      clearTimeout(timer);
+      if (r.ok || r.status === 204) speedSection.removeAttribute('hidden');
+      else speedV6Note.removeAttribute('hidden');
+    }).catch(function() {
+      clearTimeout(timer);
+      speedV6Note.removeAttribute('hidden');
+    });
+  }
+  ensureSpeedVisibility();
+
+  var DOWN_BYTES = 500 * 1000 * 1000;   // 500 MB per stream (server caps at 1 GiB)
+  var DOWN_DURATION = 15000;
+  var DOWN_WARMUP = 2000;               // skip NewReno slow-start
+  var UP_CHUNK = 25 * 1024 * 1024;       // 25 MiB per POST
+  var UP_DURATION = 15000;
+  var UP_WARMUP = 2000;
+  var PING_COUNT = 8;
+
+  function fmtMbps(bps) {
+    if (bps < 1e6) return (bps / 1e3).toFixed(0) + ' Kbps';
+    if (bps < 1e9) return (bps / 1e6).toFixed(1) + ' Mbps';
+    return (bps / 1e9).toFixed(2) + ' Gbps';
+  }
+  function fmtProto(p) {
+    if (!p) return '?';
+    if (p === 'h3' || p === 'h3-29') return 'h3';
+    return p;
+  }
+  function setStatus(text) {
+    speedResultsEl.innerHTML = '<div class="speed-status">' + escapeHtml(text) + '</div>';
+  }
+
+  function measurePing() {
+    var samples = [];
+    var chain = Promise.resolve();
+    for (var i = 0; i < PING_COUNT; i++) {
+      chain = chain.then(function() {
+        var t0 = performance.now();
+        return fetch('https://' + SPEED_PING_HOST + '/ping?_=' + Math.random(),
+          { cache: 'no-store', mode: 'cors' })
+          .then(function(r) {
+            if (!r.ok && r.status !== 204) throw new Error('ping ' + r.status);
+            samples.push(performance.now() - t0);
+          });
+      });
+    }
+    return chain.then(function() {
+      var sorted = samples.slice().sort(function(a, b) { return a - b; });
+      var med = sorted[Math.floor(sorted.length / 2)];
+      var mean = samples.reduce(function(s, x) { return s + x; }, 0) / samples.length;
+      var variance = samples.reduce(function(s, x) {
+        return s + (x - mean) * (x - mean);
+      }, 0) / samples.length;
+      return { ping: med, jitter: Math.sqrt(variance) };
+    });
+  }
+
+  function measureXfer(opts) {
+    // opts: { startStream(abortSig) -> stream that calls opts.onBytes(delta) on progress,
+    //         duration, warmup, kind }
+    var abort = new AbortController();
+    var total = 0;
+    var samples = [];
+    var startedAt = performance.now();
+    var onBytes = function(delta) {
+      total += delta;
+      samples.push({ t: performance.now(), b: total });
+    };
+    var streams = [];
+    var parallel = SPEED_SHARDS.length || 1;
+    for (var i = 0; i < parallel; i++) {
+      streams.push(opts.startStream(i, abort.signal, onBytes));
+    }
+    return new Promise(function(resolve) {
+      var ticker = setInterval(function() {
+        var now = performance.now();
+        var live = now - startedAt > opts.warmup
+          ? (total * 8) / ((now - startedAt) / 1000)
+          : 0;
+        setStatus(opts.kind + '... ' + fmtMbps(live));
+        if (now - startedAt >= opts.duration) {
+          clearInterval(ticker);
+          abort.abort();
+          var warmAt = startedAt + opts.warmup;
+          var bStart = 0, bEnd = 0;
+          for (var j = 0; j < samples.length; j++) {
+            if (samples[j].t <= warmAt) bStart = samples[j].b;
+            if (samples[j].t <= now) bEnd = samples[j].b;
+          }
+          var sec = (now - warmAt) / 1000;
+          var bps = sec > 0 ? ((bEnd - bStart) * 8) / sec : 0;
+          Promise.all(streams).then(function() { resolve(bps); }, function() { resolve(bps); });
+        }
+      }, 250);
+    });
+  }
+
+  function measureDownload() {
+    return measureXfer({
+      kind: 'downloading',
+      duration: DOWN_DURATION,
+      warmup: DOWN_WARMUP,
+      startStream: function(idx, signal, onBytes) {
+        var host = SPEED_SHARDS[idx % SPEED_SHARDS.length];
+        return fetch('https://' + host + '/__down?bytes=' + DOWN_BYTES + '&r=' + Math.random(),
+          { signal: signal, cache: 'no-store', mode: 'cors' }
+        ).then(function(r) {
+          var reader = r.body.getReader();
+          function step() {
+            return reader.read().then(function(res) {
+              if (res.done) return;
+              onBytes(res.value.byteLength);
+              return step();
+            });
+          }
+          return step();
+        }).catch(function() { /* aborted or stream closed */ });
+      }
+    });
+  }
+
+  function measureUpload() {
+    var buf = new Uint8Array(UP_CHUNK);
+    return measureXfer({
+      kind: 'uploading',
+      duration: UP_DURATION,
+      warmup: UP_WARMUP,
+      startStream: function(idx, signal, onBytes) {
+        var host = SPEED_SHARDS[idx % SPEED_SHARDS.length];
+        // fetch upload streaming is poorly supported; XHR gives upload.onprogress.
+        function once() {
+          if (signal.aborted) return Promise.resolve();
+          return new Promise(function(resolve) {
+            var xhr = new XMLHttpRequest();
+            var lastSent = 0;
+            xhr.upload.onprogress = function(e) {
+              var delta = e.loaded - lastSent;
+              lastSent = e.loaded;
+              if (delta > 0) onBytes(delta);
+            };
+            xhr.onloadend = function() { resolve(); };
+            signal.addEventListener('abort', function() {
+              try { xhr.abort(); } catch (_) {}
+            });
+            xhr.open('POST', 'https://' + host + '/__up?r=' + Math.random());
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            try { xhr.send(buf); } catch (_) { resolve(); }
+          }).then(function() {
+            if (!signal.aborted) return once();
+          });
+        }
+        return once();
+      }
+    });
+  }
+
+  var speedRunning = false;
+  function runSpeedTest() {
+    if (speedRunning) return;
+    speedRunning = true;
+    speedRunBtn.disabled = true;
+    speedProto = { down: '', up: '' };
+    setStatus('loading config...');
+
+    loadSpeedConfig().then(function() {
+      setStatus('warming up h3...');
+      return prewarmShards(SPEED_SHARDS);
+    }).then(function() {
+      setStatus('measuring ping...');
+      return measurePing();
+    }).then(function(p) {
+      setStatus('downloading...');
+      return measureDownload().then(function(downBps) {
+        setStatus('uploading...');
+        return measureUpload().then(function(upBps) {
+          return { ping: p.ping, jitter: p.jitter, down: downBps, up: upBps };
+        });
+      });
+    }).then(function(r) {
+      var dProto = fmtProto(speedProto.down);
+      var uProto = fmtProto(speedProto.up);
+      var proto = dProto === uProto ? dProto : (dProto + ' / ' + uProto);
+      speedResultsEl.innerHTML =
+        '<div class="speed-row">' +
+          '<div><span class="speed-num">' + fmtMbps(r.down) + '</span><span class="speed-unit">&darr;</span></div>' +
+          '<div><span class="speed-num">' + fmtMbps(r.up) + '</span><span class="speed-unit">&uarr;</span></div>' +
+        '</div>' +
+        '<div class="speed-meta">' +
+          'ping ' + Math.round(r.ping) + ' ms · jitter ' + r.jitter.toFixed(1) + ' ms · ' + escapeHtml(proto) +
+        '</div>';
+    }).catch(function(e) {
+      speedResultsEl.innerHTML = '<div class="lookup-error">speed test failed: ' +
+        escapeHtml((e && e.message) || 'unknown') + '</div>';
+    }).then(function() {
+      speedRunning = false;
+      speedRunBtn.disabled = false;
+    });
+  }
+  speedRunBtn.addEventListener('click', runSpeedTest);
 
   // Region line
   (function renderRegion() {
