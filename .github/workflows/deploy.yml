@@ -1,0 +1,61 @@
+name: Deploy to Fly
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Each app has its own concurrency group so a push that touches both can deploy
+# them in parallel; a second push to the same app waits for the first to finish.
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ip: ${{ steps.filter.outputs.ip }}
+      speed: ${{ steps.filter.outputs.speed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ip:
+              - '*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'index.html'
+              - 'Dockerfile'
+              - 'fly.toml'
+            speed:
+              - 'speed/**'
+
+  deploy-ip:
+    needs: changes
+    if: ${{ needs.changes.outputs.ip == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-ip
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only -a ip-ian-sh --yes
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_IP }}
+
+  deploy-speed:
+    needs: changes
+    if: ${{ needs.changes.outputs.speed == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-speed
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: speed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only -a ip-speed --yes
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_SPEED }}
